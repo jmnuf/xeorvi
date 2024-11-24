@@ -53,10 +53,9 @@ struct CmdReq {
 }
 
 fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
-    // Clean Environment
+    // Environment
     let mut stdout = io::stdout();
     let mut stderr = io::stderr();
-    stdout.clear_term()?;
     
     // Setup base data
     let mut should_quit = false;
@@ -77,6 +76,7 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
     // Setup environment data
     let (mut cols, mut rows) = terminal::size().iu()?;
     stdout.uqueue(cursor::MoveTo(0, 0))?;
+    stdout.clear_term()?;
     
     while !should_quit {
         stdout.uflush()?;
@@ -85,7 +85,9 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
                 event::Event::Resize(new_cols_amt, new_rows_amt) => {
                     cols = new_cols_amt;
                     rows = new_rows_amt;
-                    stdout.ubwrite(format!("[DEBUG] Resized to: {}x{}", cols, rows))?;
+                    if cfg!(debug_assertions) {
+                        stdout.ubwrite(format!("[DEBUG] Resized to: {}x{}\n", cols, rows))?;
+                    }
                 },
                 _ => {},
             };
