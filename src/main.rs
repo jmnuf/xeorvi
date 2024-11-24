@@ -96,7 +96,8 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
             stdout.ubwrite("\n\n\n\n")?;
             stdout.uqueue(cursor::MoveUp(3))?;
         }
-        // TODO: Actually move the prompt to a separate function just to make this function a bit shorter?
+        // TODO: Actually move the prompt to a separate function and use raw mode to read user
+        // input to be able to later on add auto-complete suggestions.
         let top_bar_len = cols-(dir_name.chars().count()as u16)-4;
         stdout.uswrite(format!("╔┈{}/┈{:═<w$}", dir_name, "", w=top_bar_len as usize).cyan().on_black())?;
         stdout.uqueue(cursor::MoveDown(1))?;
@@ -117,7 +118,7 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
         stdout.uqueue(cursor::RestorePosition)?;
         stdout.uflush()?;
 
-        // TODO: Instead of just reading a line, maybe switch to raw mode and handle all input manually
+        // TODO: Instead of just reading a line, switch to raw mode and handle all input manually
         let mut line = String::with_capacity(64);
         let _bytes_read = io::stdin().lock().read_line(&mut line).iu()?;
         let line = line.trim().to_string();
@@ -343,12 +344,12 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
     let mut path = path.replace("\\", "/");
     if path.starts_with("/") {
         // TODO: Handle absolute paths
-        return Err(format!("Unable to change directory to `{}` as absolute paths are not supported, yet!", path));
+        return Err(format!("Unable to change directory to `{}` as absolute paths are not supported, yet!\n", path));
     }
     if path == ".." {
         match new_path.parent() {
             Some(p) => return Ok(p.to_path_buf()),
-            None => return Err(format!("Can't extract parent directory from {}", new_path.display())),
+            None => return Err(format!("Can't extract parent directory from {}\n", new_path.display())),
         };
     }
     while !path.is_empty() {
@@ -356,11 +357,12 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
             path.drain(..path.find("/").unwrap() + 1);
             continue;
         }
+        // TODO: Handle when the parent is the root dir: "/" or "c:/"
         if path.starts_with("../") {
             path.drain(..path.find("/").unwrap() + 1);
             new_path = match new_path.parent() {
                 Some(p) => p.to_path_buf(),
-                None => return Err(format!("Can't extract parent directory from {}", new_path.display())),
+                None => return Err(format!("Can't extract parent directory from {}\n", new_path.display())),
             };
             continue;
         }
@@ -369,7 +371,7 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
             let _ = path.drain(..1); // Get rid of slash
             let tmp_path = new_path.join(&dir_name);
             if !tmp_path.exists() {
-                return Err(format!("Can't find directory {}", tmp_path.display()));
+                return Err(format!("Can't find directory {}\n", tmp_path.display()));
             }
             new_path.push(dir_name);
             continue;
@@ -377,7 +379,7 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
         let dir_name = String::from(path.drain(..).as_str());
         let tmp_path = new_path.join(&dir_name);
         if !tmp_path.exists() {
-            return Err(format!("Can't find directory {}", tmp_path.display()));
+            return Err(format!("Can't find directory {}\n", tmp_path.display()));
         }
         new_path.push(dir_name);
     }
