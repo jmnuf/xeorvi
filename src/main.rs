@@ -62,7 +62,7 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
     let mut should_quit = false;
     let quit_commands = ["kys", "exit", "quite", "q", "kindness"];
     let (mut dir_path, mut dir_name) = query_current_directory_name()?;
-    let git_branch_name = match query_git_branch_name() {
+    let mut git_branch_name = match query_git_branch_name() {
         Ok(Some(name)) => name,
         _ => String::new(),
     };
@@ -170,7 +170,11 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
                                 stderr.uswrite("[ERROR]".red())?;
                                 stderr.ubwrite(" Rust failed to get directory name separated\n")?;
                             },
-                        }
+                        };
+                        git_branch_name = match query_git_branch_name() {
+                            Ok(Some(name)) => name,
+                            _ => String::new(),
+                        };
                     },
                 };
             } else {
