@@ -344,9 +344,40 @@ fn parse_user_input(input: String) -> Result<CmdReq, String> {
 fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> {
     let mut new_path = cwd.clone();
     let mut path = path.replace("\\", "/");
+    if cfg!(windows) {
+        if path.to_lowercase().starts_with("c:/") {
+            path.drain(..path.find("/").unwrap());
+        }
+    }
     if path.starts_with("/") {
-        // TODO: Handle absolute paths
-        return Err(format!("Unable to change directory to `{}` as absolute paths are not supported, yet!\n", path));
+        if cfg!(windows) {
+            path = format!("C:{}", path);
+        }
+        let abs_dir = path::PathBuf::from(&path);
+        if abs_dir.is_symlink() {
+            drop(abs_dir);
+            let (final_path, links_checked) = resolve_symlink(&new_path)?;
+            if !final_path.is_dir() {
+                let mut error = String::from("Can't CD onto non-directory path: {}\n");
+                let mut prev = String::with_capacity(0);
+                for (i, cur) in links_checked.iter().enumerate() {
+                    if i == 0 {
+                        prev = cur.clone();
+                        continue;
+                    }
+                    error = format!("{}  `{}` -> `{}`\n", error, prev, cur);
+                }
+                return Err(error);
+            }
+            return Ok(final_path);
+        }
+
+        if !abs_dir.is_dir() {
+            return Err(format!("Can't CD into non-directory path: {}\n", new_path.display()));
+        }
+        // TODO: Need to handle the edge case when the user passed "absolute" path has relative
+        // pathing inside of it i.e. /home/usr/personal/ecchi/../anime/./best-animes/evangelion
+        return Ok(abs_dir);
     }
     if path == ".." {
         match new_path.parent() {
@@ -386,18 +417,7 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
         new_path.push(dir_name);
     }
     if new_path.is_symlink() {
-        let mut final_path = new_path.clone();
-        let mut links_checked = Vec::new();
-        links_checked.push(format!("{}", final_path.display()));
-        while final_path.is_symlink() {
-            match final_path.read_link() {
-                Err(err) => return Err(format!("Failed to read symlink target: {}\n", err)),
-                Ok(linked_path) => {
-                    links_checked.push(format!("{}", linked_path.display()));
-                    final_path = linked_path;
-                },
-            };
-        }
+        let (final_path, links_checked) = resolve_symlink(new_path.clone().as_path())?;
         if !final_path.is_dir() {
             let mut error = String::from("Can't CD onto non-directory path: {}\n");
             let mut prev = String::with_capacity(0);
@@ -416,6 +436,23 @@ fn parse_path(cwd: &path::PathBuf, path: &str) -> Result<path::PathBuf, String> 
         return Err(format!("Can't CD into non-directory path: {}\n", new_path.display()));
     }
     return Ok(new_path);
+}
+
+
+fn resolve_symlink(path: &path::Path) -> Result<(path::PathBuf, Vec<String>), String> {
+    let mut final_path = path.to_path_buf();
+    let mut links_checked = Vec::new();
+    links_checked.push(format!("{}", final_path.display()));
+    while final_path.is_symlink() {
+        match final_path.read_link() {
+            Err(err) => return Err(format!("Failed to read symlink target: {}\n", err)),
+            Ok(linked_path) => {
+                links_checked.push(format!("{}", linked_path.display()));
+                final_path = linked_path;
+            },
+        };
+    }
+    return Ok((final_path, links_checked));
 }
 
 
