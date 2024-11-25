@@ -3,17 +3,48 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-// TODO: Actually also take into account non-release builds cause this probably will get slow
-const CARGO_BUILD_PATH:&'static str = "./target/release";
 const BIN_PATH:&'static str = "./bin";
 const EXE_NAME:&'static str = "xeorvi";
 
-fn main() -> ExitCode {
-    let command = ["cargo", "build", "--release"];
+fn get_args() -> (String, Vec<String>) {
+    let mut args = std::env::args();
+    let program_name = args.next().expect("Argument 0 should always be the program name");
+    
+    return (program_name, args.collect());
+}
 
+fn main() -> ExitCode {
+    let (program_name, args) = get_args();
+
+    let release_build;
+    let build_path;
+    let command = if let Some(a) = args.get(0) {
+        if a == "release" || a == "-r" {
+            release_build = true;
+            build_path = "./target/release";
+            ["cargo", "build", "--release"]
+        } else if a == "debug" || a == "-d" {
+            release_build = false;
+            build_path = "./target/debug";
+            ["cargo", "build", ""]
+        } else {
+            eprintln!("[ERROR] Invalid option passed");
+            println!("Usage: {} [(release|-r) | (debug|-d)]", program_name);
+            return ExitCode::FAILURE;
+        }
+    } else {
+        release_build = true;
+        build_path = "./target/release";
+        println!("[INFO] Build type not specified, defaulting to release mode");
+        ["cargo", "build", "--release"]
+    };
+    
     let st = {
         let mut cmd = None;
         for a in command.iter() {
+            if a.is_empty() {
+                continue;
+            }
             match cmd {
                 None => {
                     cmd = Some(Command::new(a));
@@ -25,6 +56,7 @@ fn main() -> ExitCode {
                 },
             };
         }
+        println!();
 
         cmd.unwrap().status()
     };
@@ -66,9 +98,17 @@ fn main() -> ExitCode {
     };
 
     let file_path = if cfg!(windows) {
-        format!("{}/{}.exe", BIN_PATH, EXE_NAME)
+        if release_build {
+            format!("{}/{}.exe", BIN_PATH, EXE_NAME)
+        } else {
+            format!("{}/{}-dbg.exe", BIN_PATH, EXE_NAME)
+        }
     } else {
-        format!("{}/{}", BIN_PATH, EXE_NAME)
+        if release_build {
+            format!("{}/{}", BIN_PATH, EXE_NAME)
+        } else {
+            format!("{}/{}-dbg", BIN_PATH, EXE_NAME)
+        }
     };
 
     println!("[INFO] Removing previous exe if exists...");
@@ -86,9 +126,9 @@ fn main() -> ExitCode {
     };
 
     let old_file_path = if cfg!(windows) {
-        format!("{}/{}.exe", CARGO_BUILD_PATH, EXE_NAME)
+        format!("{}/{}.exe", build_path, EXE_NAME)
     } else {
-        format!("{}/{}", CARGO_BUILD_PATH, EXE_NAME)
+        format!("{}/{}", build_path, EXE_NAME)
     };
 
     println!("[INFO] Attempting move {} -> {}", old_file_path, file_path);
