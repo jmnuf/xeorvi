@@ -1,6 +1,6 @@
 use std::{process, env, io, path, time};
 use std::error::Error;
-use std::io::{Write, BufRead};
+use std::io::{Write};
 
 use crossterm::{self, QueueableCommand, cursor, terminal, event};
 use crossterm::style::Stylize;
@@ -80,52 +80,30 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
     
     while !should_quit {
         stdout.uflush()?;
-        while event::poll(time::Duration::ZERO).iu()? {
-            match event::read().iu()? {
-                event::Event::Resize(new_cols_amt, new_rows_amt) => {
-                    cols = new_cols_amt;
-                    rows = new_rows_amt;
-                    if cfg!(debug_assertions) {
-                        stdout.ubwrite(format!("[DEBUG] Resized to: {}x{}\n", cols, rows))?;
-                    }
-                },
-                _ => {},
-            };
-        }
+
         // Add extra lines when at the bottom of the terminal to make space for the "prompt"
         let (_x, y) = cursor::position().iu()?;
         if y == rows -1 {
             stdout.ubwrite("\n\n\n\n")?;
             stdout.uqueue(cursor::MoveUp(3))?;
         }
-        // TODO: Actually move the prompt to a separate function and use raw mode to read user
-        // input to be able to later on add auto-complete suggestions.
+        // TODO: Move this to the handle_user_input function and redraw when user resizes window
         let top_bar_len = cols-(dir_name.chars().count()as u16)-4;
         stdout.uswrite(format!("╔┈{}/┈{:═<w$}", dir_name, "", w=top_bar_len as usize).cyan().on_black())?;
         stdout.uqueue(cursor::MoveDown(1))?;
         stdout.uqueue(cursor::MoveToColumn(0))?;
-        stdout.uswrite("╠┈".cyan().on_black())?;
-        stdout.uswrite(format!("«{}»", username).white().on_black())?;
-        if !git_branch_name.is_empty() {
-            stdout.uswrite("┈Git(".red().on_black())?;
-            stdout.uswrite(git_branch_name.clone().white().on_black())?;
-            stdout.uswrite(")".red().on_black())?;
-        }
-        stdout.ubwrite("∑◈ ")?;
-        stdout.uqueue(cursor::SavePosition)?;
-        stdout.uqueue(cursor::MoveDown(1))?;
-        stdout.uqueue(cursor::MoveToColumn(0))?;
-        stdout.uswrite("╚═══════╝".cyan().on_black())?;
-        stdout.uswrite(" TODO: Implement auto complete options that should go here".dim().grey())?;
-        stdout.uqueue(cursor::RestorePosition)?;
-        stdout.uflush()?;
-
-        // TODO: Instead of just reading a line, switch to raw mode and handle all input manually
-        let mut line = String::with_capacity(64);
-        let _bytes_read = io::stdin().lock().read_line(&mut line).iu()?;
-        let line = line.trim().to_string();
+        // Activate raw mode temporarily to read the user input by hand a character at a time
+        let (line, close_requested) = handle_user_input(&mut stdout, &username, &git_branch_name, &mut cols, &mut rows)?;
+        
         // Don't overlap with the design thingy
         stdout.ubwrite("\n")?;
+        
+        if close_requested {
+            stdout.ubwrite("\n")?;
+            stdout.uflush()?;
+            should_quit = true;
+            continue;
+        }
 
         if line.is_empty() {
             continue;
@@ -259,6 +237,78 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+
+fn handle_user_input(stdout: &mut io::Stdout, username: &str, git_branch_name: &str, cols: &mut u16, rows: &mut u16) -> Result<(String, bool), String> {
+    terminal::enable_raw_mode().iu()?;
+    let mut buf = String::new();
+    #[allow(unused_mut)]
+    let mut sgs = Vec::new();
+    let draw_line = move |stdout: &mut io::Stdout, usr_txt: &str, _suggestions: &Vec<String>| -> Result<(), String> {
+        stdout.uqueue(cursor::MoveToColumn(0))?;
+        stdout.uqueue(terminal::Clear(terminal::ClearType::CurrentLine))?;
+        stdout.uswrite("╠┈".cyan().on_black())?;
+        stdout.uswrite(format!("«{}»", username).white().on_black())?;
+        if !git_branch_name.is_empty() {
+            stdout.uswrite("┈Git(".red().on_black())?;
+            stdout.uswrite(git_branch_name.white().on_black())?;
+            stdout.uswrite(")".red().on_black())?;
+        }
+        stdout.ubwrite("∑◈ ")?;
+        stdout.ubwrite(usr_txt)?;
+        stdout.uqueue(cursor::SavePosition)?;
+        stdout.uqueue(cursor::MoveDown(1))?;
+        stdout.uqueue(cursor::MoveToColumn(0))?;
+        stdout.uqueue(terminal::Clear(terminal::ClearType::CurrentLine))?;
+        stdout.uswrite("╚═══════╝".cyan().on_black())?;
+        stdout.uswrite(" TODO: Implement auto complete options that should go here".dim().grey())?;
+        stdout.uqueue(cursor::RestorePosition)?;
+        stdout.uflush()?;
+        Ok(())
+    };
+
+    draw_line(stdout, &buf, &sgs)?;
+    let mut is_done = false;
+    while !is_done {
+        if event::poll(time::Duration::ZERO).iu()? {
+            match event::read().iu()? {
+                event::Event::Resize(new_cols_amt, new_rows_amt) => {
+                    *cols = new_cols_amt;
+                    *rows = new_rows_amt;
+                    if cfg!(debug_assertions) {
+                        stdout.ubwrite(format!("[DEBUG] Resized to: {}x{}\n", cols, rows))?;
+                    }
+                },
+                event::Event::Key(event) => 'key_event_block: {
+                    if event.kind != event::KeyEventKind::Press {
+                        break 'key_event_block;
+                    }
+                    // let capitalize = false;
+                    if !event.modifiers.is_empty() {
+                        if event.modifiers != event::KeyModifiers::SHIFT {
+                            break 'key_event_block;
+                        }
+                        // captialize = true;
+                    }
+                    match event.code {
+                        // event::KeyCode::Char(c) => { buf.push(if capitalize { c.to_uppercase() } else { c }); },
+                        event::KeyCode::Char(c) => { buf.push(c); },
+                        event::KeyCode::Backspace => { let _ = buf.pop(); },
+                        event::KeyCode::Enter => { is_done = true; },
+                        _ => {},
+                    };
+                },
+                // TODO: Implement pasting
+                event::Event::Paste(_content) => {},
+                _ => {},
+            };
+        }
+        draw_line(stdout, &buf, &sgs)?;
+    }
+    stdout.uqueue(cursor::MoveDown(1))?;
+    terminal::disable_raw_mode().iu()?;
+    return Ok((buf, false));
 }
 
 
