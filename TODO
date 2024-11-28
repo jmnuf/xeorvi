@@ -1,0 +1,10 @@
+./src/main.rs:95:17>  TODO: Move this to the handle_user_input function and redraw when user resizes window
+./src/main.rs:327:13> TODO: Also include current directory stuff into suggestions
+./src/main.rs:445:25> TODO: Implement pasting
+./src/main.rs:461:9>  TODO: Test this monstrosity parse_user_input
+./src/main.rs:473:21> TODO: Handle proper escaping
+./src/main.rs:539:9>  TODO: Test this abomination parse_path
+./src/main.rs:574:17> TODO: Need to handle the edge case when the user passed "absolute" path has relative pathing inside of it i.e. /home/usr/personal/ecchi/../anime/./best-animes/evangelion
+./src/main.rs:589:17> TODO: Handle when the parent is the root dir: "/" or "c:/"
+./src/main.rs:718:21> TODO: Inspect symlinks I guess
+./src/main.rs:780:9>  TODO: Is it better to do a search for the .git folder? Did it this way cause it was the easiest and "it just works" - Tod Howard
