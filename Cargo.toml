@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.28.1"
+is_executable = "1.0.4"
 whoami = "1.5.2"
