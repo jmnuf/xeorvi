@@ -406,20 +406,33 @@ fn handle_user_input(
                         if event.modifiers == event::KeyModifiers::CONTROL {
                             if event.code == event::KeyCode::Backspace {
                                 // Remove all whitespace ahead of characters cause I think that is what feels natural
-                                if let Some(mut c) = buf.pop() {
-                                    while c.is_whitespace() {
-                                        if let Some(nx) = buf.pop() {
-                                            c = nx;
-                                        } else {
-                                            break;
+                                'remove_whitespaced: {
+                                    if let Some(mut c) = buf.pop() {
+                                        while c.is_whitespace() {
+                                            if let Some(nx) = buf.pop() {
+                                                c = nx;
+                                            } else {
+                                                break 'remove_whitespaced;
+                                            }
                                         }
+                                        buf.push(c);
                                     }
                                 }
                                 // This should stop when hitting whitespace and symbols
+                                let mut first = true;
                                 while let Some(ch) = buf.pop() {
                                     if !ch.is_alphanumeric() {
+                                        if !ch.is_whitespace() {
+                                            if first {
+                                                first = false;
+                                                continue;
+                                            }
+                                            // Word boundaries should be kept I think
+                                            buf.push(ch);
+                                        }
                                         break;
                                     }
+                                    first = false;
                                 }
                             }
                             break 'key_event_block;
