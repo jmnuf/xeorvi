@@ -61,10 +61,14 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
         Ok(list) => list,
         Err(_) => Vec::new(),
     };
+    let env_cmds = query_env_cmds();
     
     // Setup base data
     let mut should_quit = false;
     let quit_commands = ["kys", "exit", "quite", "q", "kindness"];
+    // for qc in quit_commands.iter() {
+    //     env_cmds.push(qc.to_string());
+    // }
     let (mut dir_path, mut dir_name) = query_current_directory_name()?;
     let mut git_branch_name = match query_git_branch_name() {
         Ok(Some(name)) => name,
@@ -105,6 +109,7 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
             &mut cols,
             &mut rows,
             &env_exes.iter().map(|(_, name)| name.clone()).collect(),
+            &env_cmds.iter().map(|(name, _)| name.clone()).collect(),
         )?;
         
         // Don't overlap with the design thingy
@@ -121,7 +126,7 @@ fn run(program_name: &str, _args: env::Args) -> Result<(), String> {
             continue;
         }
         
-        if quit_commands.contains(&line.to_lowercase().as_str()) {
+        if quit_commands.contains(&line.trim().to_lowercase().as_str()) {
             should_quit = true;
             continue;
         }
@@ -318,14 +323,15 @@ fn handle_user_input(
     git_branch_name: &str,
     cols: &mut u16,
     rows: &mut u16,
-    env_exes: &Vec<String>
+    env_exes: &Vec<String>,
+    env_cmds: &Vec<String>
 ) -> Result<(String, bool), String> {
     terminal::enable_raw_mode().iu()?;
     
     let mut buf = String::new();
     let mut sgs = Vec::new();
     // TODO: Also include current directory stuff into suggestions
-    let draw_line = move |stdout: &mut io::Stdout, cols: u16, usr_txt: &str, suggestions: &Vec<&String>| -> Result<(), String> {
+    let draw_line = move |stdout: &mut io::Stdout, cols: u16, usr_txt: &str, suggestions: &Vec<String>, active_suggestion_index: usize| -> Result<(), String> {
         stdout.uqueue(cursor::MoveToColumn(0))?;
         stdout.uqueue(terminal::Clear(terminal::ClearType::CurrentLine))?;
         stdout.uswrite("╠┈".cyan().on_black())?;
@@ -343,11 +349,11 @@ fn handle_user_input(
         stdout.uqueue(terminal::Clear(terminal::ClearType::CurrentLine))?;
         stdout.uswrite("╚═══════╝".cyan().on_black())?;
         
-        if usr_txt.len() < 2 || suggestions.is_empty() {
+        if usr_txt.len() < 1 || suggestions.is_empty() {
             stdout.uswrite(" {}".dim().grey())?;
         } else {
             let (x, _) = cursor::position().iu()?;
-            let mut it = suggestions.iter();
+            let mut it = suggestions.iter().skip(active_suggestion_index);
             if let Some(first) = it.next() {
                 let mut x = x;
                 if !usr_txt.starts_with(&**first) {
@@ -382,12 +388,16 @@ fn handle_user_input(
         Ok(())
     };
 
+    for c in env_cmds.iter() {
+        sgs.push(c.clone());
+    }
     for e in env_exes.iter() {
         sgs.push(e.clone());
     }
-    draw_line(stdout, *cols, &buf, &sgs.iter().collect())?;
+    draw_line(stdout, *cols, &buf, &sgs, 0)?;
     let mut is_done = false;
-    let mut last_suggestion = None;
+    let mut last_suggestion:Option<String> = None;
+    let mut sgs_idx = 0isize;
     while !is_done {
         if event::poll(time::Duration::ZERO).iu()? {
             match event::read().iu()? {
@@ -448,9 +458,15 @@ fn handle_user_input(
                         event::KeyCode::Tab => {
                             if let Some(sg) = last_suggestion {
                                 buf.clear();
-                                buf.push_str(sg);
+                                buf.push_str(sg.as_str());
                                 buf.push(' ');
                             }
+                        },
+                        event::KeyCode::Right => {
+                            sgs_idx += 1;
+                        },
+                        event::KeyCode::Left => {
+                            sgs_idx -= 1;
                         },
                         _ => {},
                     };
@@ -460,11 +476,18 @@ fn handle_user_input(
                 _ => {},
             };
         }
-        let sgs:Vec<_> = sgs.iter().filter(|name| name.starts_with(&buf)).collect();
-        last_suggestion = sgs.first().map(|x| x.as_str());
-        draw_line(stdout, *cols, &buf, &sgs)?;
+        let sgs:Vec<_> = sgs.iter().filter(|name| name.starts_with(&buf)).map(|x| x.clone()).collect();
+        sgs_idx = if sgs.is_empty() || sgs_idx >= sgs.len() as isize {
+            0
+        } else if sgs_idx < 0 {
+            (sgs.len() - 1) as isize
+        } else {
+            sgs_idx
+        };
+        last_suggestion = sgs.get(sgs_idx as usize).map(|x| x.clone());
+        draw_line(stdout, *cols, &buf, &sgs, sgs_idx as usize)?;
     }
-    draw_line(stdout, *cols, &buf, &Vec::new())?;
+    draw_line(stdout, *cols, &buf, &Vec::new(), 0)?;
     stdout.uqueue(cursor::MoveDown(1))?;
     terminal::disable_raw_mode().iu()?;
     return Ok((buf, false));
@@ -784,6 +807,15 @@ fn query_env_exes() -> io::Result<Vec<(path::PathBuf, String)>> {
     }).collect();
     
     return Ok(exes);
+}
+
+fn query_env_cmds() -> Vec<(String, String)> {
+    let mut cmds = Vec::new();
+    let quit_cmds = ["kys", "exit", "quit", "q", "kindness"];
+    for qc in quit_cmds.iter() {
+        cmds.push((qc.to_string(), String::from("QUIT")));
+    }
+    return cmds;
 }
 
 
